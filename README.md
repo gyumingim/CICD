@@ -1,11 +1,11 @@
-# Jenkins CI/CD 최소 설정 프로젝트
+# Jenkins CI/CD 완전 가이드 (라즈베리파이 버전)
 
-노트북 Jenkins → Docker Hub → 원격 서버 배포 플로우
+노트북 Jenkins → Docker Hub → 라즈베리파이 서버 배포 플로우
 
 ## 📁 프로젝트 구조
 
 ```
-project/
+cicd-project/
 ├── frontend/
 │   ├── Dockerfile
 │   ├── index.html
@@ -23,22 +23,22 @@ project/
 
 ---
 
-## 🚀 1단계: 로컬(노트북) Jenkins 설치
+## 🚀 1단계: 노트북에 Jenkins 설치
 
 ### Docker로 Jenkins 실행
 
-```bash
-docker run -d \
-  --name jenkins \
-  -p 8080:8080 \
-  -v jenkins_home:/var/jenkins_home \
-  -v /var/run/docker.sock:/var/run/docker.sock \
+```powershell
+docker run -d `
+  --name jenkins `
+  -p 8080:8080 `
+  -v jenkins_home:/var/jenkins_home `
+  -v /var/run/docker.sock:/var/run/docker.sock `
   jenkins/jenkins:lts
 ```
 
 ### 초기 비밀번호 확인
 
-```bash
+```powershell
 docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
@@ -48,32 +48,56 @@ docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 
 Jenkins 관리 → 플러그인 관리에서 설치:
 - **Docker Pipeline**
-- **SSH Agent**
 - **Git**
 
 ---
 
 ## 🔑 2단계: Jenkins Credentials 설정
 
-Jenkins 관리 → Credentials → System → Global credentials 추가
+Jenkins 관리 → Credentials → System → Global credentials
 
 ### 1) Docker Hub 로그인 정보
+
+**"+ Add Credentials"** 클릭:
 
 - Kind: `Username with password`
 - ID: `dockerhub-credentials`
 - Username: Docker Hub 아이디
 - Password: Docker Hub 비밀번호
+- Description: `Docker Hub Login`
+- **Create**
 
-### 2) 서버 SSH 키
+### 2) 라즈베리파이 SSH 비밀번호
 
-- Kind: `SSH Username with private key`
-- ID: `server-ssh-key`
-- Username: 서버 SSH 유저명 (예: ubuntu)
-- Private Key: 노트북의 `~/.ssh/id_rsa` 내용 복사
+**"+ Add Credentials"** 다시 클릭:
+
+- Kind: `Username with password`
+- ID: `pi-ssh-password`
+- Username: `pi`
+- Password: 라즈베리파이 비밀번호
+- Description: `Raspberry Pi SSH Password`
+- **Create**
+
+완료하면 2개가 보여야 함:
+```
+dockerhub-credentials  (Username with password)
+pi-ssh-password       (Username with password)
+```
 
 ---
 
 ## 📦 3단계: 프로젝트 파일 생성
+
+노트북에서 작업:
+
+```powershell
+# 프로젝트 폴더 생성
+mkdir cicd-project
+cd cicd-project
+
+# 서브 폴더 생성
+mkdir frontend, backend, server
+```
 
 ### frontend/Dockerfile
 
@@ -94,6 +118,7 @@ EXPOSE 80
 </head>
 <body>
     <h1>Hello from Frontend v1.0</h1>
+    <p>Deployed via Jenkins CI/CD!</p>
 </body>
 </html>
 ```
@@ -147,7 +172,11 @@ const express = require('express');
 const app = express();
 
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.0' });
+    res.json({ 
+        status: 'ok', 
+        version: '1.0',
+        message: 'Backend is running!'
+    });
 });
 
 app.listen(3000, () => {
@@ -164,14 +193,14 @@ pipeline {
     environment {
         DOCKERHUB_REPO = 'your-dockerhub-username/frontend'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        SERVER_HOST = 'your-server-ip'
+        SERVER_HOST = '192.168.1.45'
     }
     
     stages {
         stage('Test') {
             steps {
                 echo 'Running frontend tests...'
-                // 실제 테스트 명령어 추가 (예: npm test)
+                // 실제 테스트 명령어 추가 가능
             }
         }
         
@@ -197,12 +226,16 @@ pipeline {
             }
         }
         
-        stage('Deploy to Server') {
+        stage('Deploy to Raspberry Pi') {
             steps {
-                sshagent(['server-ssh-key']) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'pi-ssh-password',
+                    usernameVariable: 'SSH_USER',
+                    passwordVariable: 'SSH_PASS'
+                )]) {
                     sh """
-                        ssh -o StrictHostKeyChecking=no ubuntu@${SERVER_HOST} '
-                            cd /home/ubuntu/app &&
+                        sshpass -p "\${SSH_PASS}" ssh -o StrictHostKeyChecking=no \${SSH_USER}@${SERVER_HOST} '
+                            cd ~/app &&
                             docker pull ${DOCKERHUB_REPO}:latest &&
                             docker-compose up -d frontend
                         '
@@ -216,9 +249,18 @@ pipeline {
         always {
             sh 'docker system prune -f'
         }
+        success {
+            echo 'Frontend deployment successful!'
+        }
+        failure {
+            echo 'Frontend deployment failed!'
+        }
     }
 }
 ```
+
+**⚠️ 수정 필요:**
+- `your-dockerhub-username` → 본인 Docker Hub 아이디로 변경
 
 ### Jenkinsfile-backend
 
@@ -229,14 +271,13 @@ pipeline {
     environment {
         DOCKERHUB_REPO = 'your-dockerhub-username/backend'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        SERVER_HOST = 'your-server-ip'
+        SERVER_HOST = '192.168.1.45'
     }
     
     stages {
         stage('Test') {
             steps {
                 echo 'Running backend tests...'
-                // 실제 테스트 명령어 추가
             }
         }
         
@@ -262,12 +303,16 @@ pipeline {
             }
         }
         
-        stage('Deploy to Server') {
+        stage('Deploy to Raspberry Pi') {
             steps {
-                sshagent(['server-ssh-key']) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'pi-ssh-password',
+                    usernameVariable: 'SSH_USER',
+                    passwordVariable: 'SSH_PASS'
+                )]) {
                     sh """
-                        ssh -o StrictHostKeyChecking=no ubuntu@${SERVER_HOST} '
-                            cd /home/ubuntu/app &&
+                        sshpass -p "\${SSH_PASS}" ssh -o StrictHostKeyChecking=no \${SSH_USER}@${SERVER_HOST} '
+                            cd ~/app &&
                             docker pull ${DOCKERHUB_REPO}:latest &&
                             docker-compose up -d backend
                         '
@@ -281,9 +326,18 @@ pipeline {
         always {
             sh 'docker system prune -f'
         }
+        success {
+            echo 'Backend deployment successful!'
+        }
+        failure {
+            echo 'Backend deployment failed!'
+        }
     }
 }
 ```
+
+**⚠️ 수정 필요:**
+- `your-dockerhub-username` → 본인 Docker Hub 아이디로 변경
 
 ### server/docker-compose.yml
 
@@ -308,150 +362,257 @@ services:
     restart: unless-stopped
 ```
 
+**⚠️ 수정 필요:**
+- `your-dockerhub-username` → 본인 Docker Hub 아이디로 변경
+
 ---
 
-## 🖥️ 4단계: 서버 설정
+## 🖥️ 4단계: 라즈베리파이 설정
 
-### 서버에 Docker 설치
+### 1) SSH 접속
+
+```powershell
+ssh pi@192.168.1.45
+```
+
+### 2) Docker 설치
 
 ```bash
-# Docker 설치
+# Docker 설치 스크립트 실행
 curl -fsSL https://get.docker.com -o get-docker.sh
-sh get-docker.sh
+sudo sh get-docker.sh
 
-# Docker Compose 설치
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
+# pi 유저에게 Docker 권한 부여
+sudo usermod -aG docker pi
+
+# 재로그인 필요
+exit
 ```
 
-### 프로젝트 디렉토리 생성
+다시 접속:
+```powershell
+ssh pi@192.168.1.45
+```
+
+### 3) Docker Compose 설치
 
 ```bash
-mkdir -p /home/ubuntu/app
-cd /home/ubuntu/app
+# Docker Compose 설치
+sudo apt update
+sudo apt install -y docker-compose
+
+# 버전 확인
+docker-compose --version
 ```
 
-### docker-compose.yml 업로드
+### 4) 프로젝트 디렉토리 생성
 
-위의 `server/docker-compose.yml` 파일을 서버의 `/home/ubuntu/app/docker-compose.yml`로 복사
+```bash
+# 홈 디렉토리에 app 폴더 생성
+mkdir -p ~/app
+cd ~/app
+```
 
-### Docker Hub 로그인
+### 5) docker-compose.yml 업로드
 
+**방법 A: 직접 파일 생성 (추천)**
+
+라즈베리파이에서:
+```bash
+nano ~/app/docker-compose.yml
+```
+
+위에 작성한 `server/docker-compose.yml` 내용 복사 → 붙여넣기
+- Ctrl+O (저장) → Enter → Ctrl+X (종료)
+
+**방법 B: scp로 전송**
+
+노트북에서:
+```powershell
+scp server/docker-compose.yml pi@192.168.1.45:~/app/
+```
+
+### 6) Docker Hub 로그인 (Public 이미지면 스킵 가능)
+
+라즈베리파이에서:
 ```bash
 docker login
-# Docker Hub 아이디/비밀번호 입력
+# Username: (Docker Hub 아이디)
+# Password: (비밀번호)
+```
+
+**만약 로그인 안 되면:** Docker Hub에서 이미지를 **Public**으로 설정
+
+---
+
+## 🔧 5단계: 노트북 Jenkins에 sshpass 설치
+
+노트북 터미널에서:
+
+```powershell
+docker exec -u root jenkins apk add sshpass
 ```
 
 ---
 
-## 🔧 5단계: Jenkins 파이프라인 생성
+## 📤 6단계: GitHub에 푸시
+
+```powershell
+cd cicd-project
+
+# Git 초기화
+git init
+git add .
+git commit -m "Initial CI/CD setup"
+
+# GitHub 레포 생성 후 연결
+git remote add origin https://github.com/your-username/cicd-project.git
+git branch -M main
+git push -u origin main
+```
+
+---
+
+## 🔧 7단계: Jenkins 파이프라인 생성
 
 ### 프론트엔드 파이프라인
 
-1. Jenkins 대시보드 → "새로운 Item"
+1. Jenkins 대시보드 → **"새로운 Item"**
 2. 이름: `frontend-pipeline`
-3. 타입: `Pipeline` 선택
-4. Pipeline 섹션에서:
+3. 타입: **Pipeline** 선택 → **OK**
+4. 설정 화면에서:
+   - **Pipeline** 섹션으로 스크롤
    - Definition: `Pipeline script from SCM`
    - SCM: `Git`
-   - Repository URL: GitHub 레포 URL
+   - Repository URL: `https://github.com/your-username/cicd-project.git`
+   - Branch Specifier: `*/main`
    - Script Path: `Jenkinsfile-frontend`
+5. **저장**
 
 ### 백엔드 파이프라인
 
-동일하게 `backend-pipeline` 생성, Script Path만 `Jenkinsfile-backend`로 변경
+동일하게 반복, 이름만 `backend-pipeline`, Script Path만 `Jenkinsfile-backend`
 
 ---
 
-## ✅ 6단계: 실행 테스트
+## ✅ 8단계: 배포 테스트!
 
-### 1) Jenkinsfile 수정
+### 1) 프론트엔드 빌드
 
-각 Jenkinsfile에서 다음 값 변경:
-- `your-dockerhub-username` → 실제 Docker Hub 아이디
-- `your-server-ip` → 실제 서버 IP
+Jenkins 대시보드:
+- `frontend-pipeline` 클릭
+- **"Build Now"** 클릭
+- 왼쪽 Build History에서 진행 상황 확인
+- 성공하면 파란 공 ✅
 
-### 2) GitHub에 푸시
+### 2) 백엔드 빌드
 
-```bash
-git add .
-git commit -m "Initial setup"
-git push origin main
-```
+- `backend-pipeline` 클릭
+- **"Build Now"** 클릭
 
-### 3) Jenkins에서 빌드 실행
-
-- 프론트엔드 파이프라인: "Build Now" 클릭
-- 백엔드 파이프라인: "Build Now" 클릭
-
-### 4) 서버 확인
+### 3) 라즈베리파이에서 확인
 
 ```bash
-# 서버에서
+ssh pi@192.168.1.45
+
+# 컨테이너 확인
 docker ps
+
+# 프론트엔드 테스트
 curl http://localhost
+
+# 백엔드 테스트
 curl http://localhost:3000/api/health
 ```
 
+### 4) 브라우저에서 확인
+
+- 프론트엔드: `http://192.168.1.45`
+- 백엔드 API: `http://192.168.1.45:3000/api/health`
+
 ---
 
-## 🎯 전체 플로우 요약
+## 🎯 전체 플로우 정리
 
 ```
-1. 노트북에서 코드 수정 후 git push
-2. Jenkins에서 수동으로 "Build Now" 클릭
-3. Jenkins가 테스트 실행
-4. Docker 이미지 빌드
-5. Docker Hub에 push
-6. SSH로 서버 접속
-7. 서버에서 docker pull
-8. docker-compose up -d로 재시작
+1. 노트북에서 코드 수정
+2. git push origin main
+3. Jenkins 대시보드에서 "Build Now" 클릭
+4. Jenkins가:
+   - 테스트 실행
+   - Docker 이미지 빌드
+   - Docker Hub에 push
+   - SSH로 라즈베리파이 접속
+   - docker pull 실행
+   - docker-compose up -d로 재시작
+5. 배포 완료! 🎉
 ```
 
 ---
 
 ## 🔍 트러블슈팅
 
-### Jenkins에서 Docker 명령어 실패 시
+### Jenkins에서 "docker: command not found"
 
-```bash
-# Jenkins 컨테이너 내부에 Docker CLI 설치
+```powershell
 docker exec -u root jenkins apk add docker-cli
 ```
 
-### SSH 연결 실패 시
+### sshpass 오류
 
-```bash
-# 서버에서 SSH 키 등록 확인
-cat ~/.ssh/authorized_keys
-
-# 노트북에서 SSH 테스트
-ssh ubuntu@your-server-ip
+```powershell
+docker exec -u root jenkins apk add sshpass
 ```
 
-### Docker Hub push 실패 시
+### 라즈베리파이에서 "permission denied"
 
-- Docker Hub credentials ID 확인
-- Docker Hub에 repository 미리 생성되어 있는지 확인
+```bash
+ssh pi@192.168.1.45
+sudo usermod -aG docker pi
+exit
+# 다시 로그인
+ssh pi@192.168.1.45
+docker ps  # 이제 sudo 없이 작동
+```
+
+### Docker Hub push 실패
+
+- Docker Hub credentials ID가 `dockerhub-credentials`인지 확인
+- Docker Hub에 레포지토리가 미리 생성되어 있는지 확인
+
+### 라즈베리파이 포트 충돌
+
+다른 서비스가 80 포트 사용 중이면:
+```yaml
+# docker-compose.yml
+services:
+  frontend:
+    ports:
+      - "8080:80"  # 80 대신 8080
+```
 
 ---
 
-## 🎨 선택사항: GitHub Webhook 자동화
+## 🎨 다음 단계
 
-수동 빌드 대신 커밋 시 자동 빌드하려면:
-
-1. Jenkins 관리 → 시스템 설정 → GitHub 서버 추가
-2. GitHub 레포 → Settings → Webhooks
-3. Payload URL: `http://your-jenkins-url:8080/github-webhook/`
-4. Jenkins 파이프라인 설정에서 "GitHub hook trigger for GITScm polling" 체크
+- [ ] GitHub Webhook으로 자동 빌드 (커밋하면 자동으로 배포)
+- [ ] Nginx로 도메인 연결
+- [ ] SSL 인증서 적용
+- [ ] 환경변수 관리 (.env)
+- [ ] 로그 모니터링
 
 ---
 
-## 📝 다음 단계
+## 📝 체크리스트
 
-- [ ] Nginx reverse proxy 추가 (80 포트로 프론트/백엔드 모두 서빙)
-- [ ] SSL 인증서 적용 (Let's Encrypt)
-- [ ] 환경변수 관리 (.env 파일)
-- [ ] 로깅/모니터링 추가
+배포 전 확인사항:
 
-끝! 🎉
+- [ ] Jenkinsfile에서 `your-dockerhub-username` 변경
+- [ ] docker-compose.yml에서 `your-dockerhub-username` 변경
+- [ ] Docker Hub에 레포지토리 생성
+- [ ] 라즈베리파이에 Docker 설치 완료
+- [ ] 라즈베리파이에 `~/app/docker-compose.yml` 업로드
+- [ ] Jenkins에 sshpass 설치
+- [ ] Jenkins Credentials 2개 등록
+
+끝! 🚀

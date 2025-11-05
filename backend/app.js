@@ -2,7 +2,11 @@ const express = require('express');
 const app = express();
 
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.0' });
+    res.json({ 
+        status: 'ok', 
+        version: '1.0',
+        message: 'Backend is running!'
+    });
 });
 
 app.listen(3000, () => {

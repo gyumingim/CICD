@@ -2,22 +2,22 @@ pipeline {
     agent any
     
     environment {
-        DOCKERHUB_REPO = 'wbhaao/backend'
+        DOCKERHUB_REPO = 'gyumingim/backend'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        SERVER_HOST = '10.125.67.49'
+        SERVER_HOST = '192.168.1.45'
     }
     
     stages {
         stage('Test') {
             steps {
-                echo 'Running frontend tests...'
+                echo 'Running backend tests...'
             }
         }
         
         stage('Build Docker Image') {
             steps {
                 script {
-                    dir('frontend') {
+                    dir('backend') {
                         docker.build("${DOCKERHUB_REPO}:${IMAGE_TAG}")
                         docker.build("${DOCKERHUB_REPO}:latest")
                     }
@@ -36,18 +36,18 @@ pipeline {
             }
         }
         
-        stage('Deploy to NAS') {
+        stage('Deploy to Raspberry Pi') {
             steps {
                 withCredentials([usernamePassword(
-                    credentialsId: 'nas-ssh-password',
+                    credentialsId: 'pi-ssh-password',
                     usernameVariable: 'SSH_USER',
                     passwordVariable: 'SSH_PASS'
                 )]) {
                     sh """
                         sshpass -p "\${SSH_PASS}" ssh -o StrictHostKeyChecking=no \${SSH_USER}@${SERVER_HOST} '
-                            cd /volume1/docker/app &&
+                            cd ~/app &&
                             docker pull ${DOCKERHUB_REPO}:latest &&
-                            docker-compose up -d frontend
+                            docker-compose up -d backend
                         '
                     """
                 }
@@ -58,6 +58,12 @@ pipeline {
     post {
         always {
             sh 'docker system prune -f'
+        }
+        success {
+            echo 'Backend deployment successful!'
+        }
+        failure {
+            echo 'Backend deployment failed!'
         }
     }
 }

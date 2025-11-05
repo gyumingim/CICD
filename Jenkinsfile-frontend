@@ -2,15 +2,16 @@ pipeline {
     agent any
     
     environment {
-        DOCKERHUB_REPO = 'wbhaao/frontend'
+        DOCKERHUB_REPO = 'gyumingim/frontend'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        SERVER_HOST = '10.125.67.49'
+        SERVER_HOST = '192.168.1.45'
     }
     
     stages {
         stage('Test') {
             steps {
                 echo 'Running frontend tests...'
+                // 실제 테스트 명령어 추가 가능
             }
         }
         
@@ -36,16 +37,16 @@ pipeline {
             }
         }
         
-        stage('Deploy to NAS') {
+        stage('Deploy to Raspberry Pi') {
             steps {
                 withCredentials([usernamePassword(
-                    credentialsId: 'nas-ssh-password',
+                    credentialsId: 'pi-ssh-password',
                     usernameVariable: 'SSH_USER',
                     passwordVariable: 'SSH_PASS'
                 )]) {
                     sh """
                         sshpass -p "\${SSH_PASS}" ssh -o StrictHostKeyChecking=no \${SSH_USER}@${SERVER_HOST} '
-                            cd /volume1/docker/app &&
+                            cd ~/app &&
                             docker pull ${DOCKERHUB_REPO}:latest &&
                             docker-compose up -d frontend
                         '
@@ -58,6 +59,12 @@ pipeline {
     post {
         always {
             sh 'docker system prune -f'
+        }
+        success {
+            echo 'Frontend deployment successful!'
+        }
+        failure {
+            echo 'Frontend deployment failed!'
         }
     }
 }
