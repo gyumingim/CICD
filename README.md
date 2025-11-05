@@ -1,371 +1,208 @@
-# FastAPI CI/CD 설정 가이드
+# 🚀 초간단 Jenkins 시작 가이드
 
-## 📋 목차
-1. [사전 요구사항](#사전-요구사항)
-2. [Jenkins 설치](#jenkins-설치)
-3. [Jenkins 설정](#jenkins-설정)
-4. [파이프라인 생성](#파이프라인-생성)
-5. [테스트 및 배포](#테스트-및-배포)
-6. [문제 해결](#문제-해결)
-
----
-
-## 🔧 사전 요구사항
-
-### 필수 설치 항목
-- Docker 20.10 이상
-- Docker Compose 2.0 이상
-- Git
-
-### 포트 확인
-```bash
-# 사용할 포트가 비어있는지 확인
-netstat -tuln | grep -E ':(80|8080|50000)'
-```
-
----
-
-## 🚀 Jenkins 설치
-
-### 1. Jenkins 컨테이너 실행
+## 1단계: Jenkins 설치 (Docker 사용 - 가장 쉬움!)
 
 ```bash
-docker run -d \
-  --name jenkins \
-  --restart=unless-stopped \
-  -p 8080:8080 \
-  -p 50000:50000 \
+# Jenkins를 Docker로 실행 (설치 필요 없음!)
+docker run -d -p 8080:8080 -p 50000:50000 \
   -v jenkins_home:/var/jenkins_home \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v $(which docker):/usr/bin/docker \
-  -v $(which docker-compose):/usr/bin/docker-compose \
+  --name jenkins \
   jenkins/jenkins:lts
 ```
 
-### 2. Jenkins 컨테이너에 Docker 권한 부여
+## 2단계: Jenkins 접속
 
-```bash
-# Docker 소켓 권한 설정
-docker exec -u root jenkins chmod 666 /var/run/docker.sock
-
-# Docker 명령어 실행 가능하도록 설정
-docker exec -u root jenkins chown jenkins:jenkins /usr/bin/docker
-docker exec -u root jenkins chown jenkins:jenkins /usr/bin/docker-compose
-```
-
-### 3. 초기 비밀번호 확인
-
+1. 브라우저에서 `http://localhost:8080` 접속
+2. 초기 비밀번호 확인:
 ```bash
 docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ```
+3. 위 비밀번호 복사해서 입력
+4. "Install suggested plugins" 선택 (추천 플러그인 자동 설치)
+5. 관리자 계정 생성 (아이디/비밀번호 설정)
 
-출력된 비밀번호를 복사해둡니다.
+## 3단계: 초간단 테스트 프로젝트 만들기
 
----
-
-## ⚙️ Jenkins 설정
-
-### 1. Jenkins 초기 설정
-
-1. 브라우저에서 `http://localhost:8080` 또는 `http://서버IP:8080` 접속
-2. 복사한 초기 비밀번호 입력
-3. **Install suggested plugins** 선택
-4. 관리자 계정 생성
-5. Jenkins URL 확인 (기본값 사용)
-
-### 2. 필수 플러그인 설치
-
-**Jenkins 관리 → Plugins → Available plugins** 에서 다음 플러그인 설치:
-
-- ✅ Git plugin (보통 기본 설치됨)
-- ✅ Pipeline plugin (보통 기본 설치됨)
-- ✅ Docker Pipeline
-- ✅ GitHub Integration Plugin (선택사항)
-
-설치 후 Jenkins 재시작:
-```bash
-docker restart jenkins
+### 프로젝트 파일 구조
+```
+my-first-jenkins-project/
+├── app.js          # 간단한 Node.js 앱
+├── test.js         # 테스트 파일
+├── package.json    # 프로젝트 설정
+└── Jenkinsfile     # Jenkins 설정 파일
 ```
 
-### 3. Docker 권한 재확인
+### app.js
+```javascript
+function add(a, b) {
+  return a + b;
+}
 
-```bash
-# Jenkins 컨테이너 내부에서 Docker 실행 테스트
-docker exec jenkins docker ps
-docker exec jenkins docker-compose version
+function greet(name) {
+  return `Hello, ${name}!`;
+}
+
+module.exports = { add, greet };
 ```
 
----
+### test.js
+```javascript
+const { add, greet } = require('./app');
 
-## 🔨 파이프라인 생성
+console.log('🧪 테스트 시작...');
 
-### 1. 새 Pipeline Job 생성
+// 테스트 1: 덧셈
+if (add(2, 3) === 5) {
+  console.log('✅ 덧셈 테스트 통과!');
+} else {
+  console.log('❌ 덧셈 테스트 실패!');
+  process.exit(1);
+}
 
-1. Jenkins 대시보드에서 **새로운 Item** 클릭
-2. 이름 입력: `fastapi-cicd`
-3. **Pipeline** 선택 → **OK**
+// 테스트 2: 인사
+if (greet('Jenkins') === 'Hello, Jenkins!') {
+  console.log('✅ 인사 테스트 통과!');
+} else {
+  console.log('❌ 인사 테스트 실패!');
+  process.exit(1);
+}
 
-### 2. Pipeline 설정
-
-**Pipeline 섹션 설정:**
-
-- **Definition:** `Pipeline script from SCM`
-- **SCM:** `Git`
-- **Repository URL:** `https://github.com/gyumingim/CICD.git`
-- **Credentials:** 공개 저장소면 None
-- **Branch Specifier:** `*/main` (또는 `*/master`)
-- **Script Path:** `Jenkinsfile`
-
-**Build Triggers 설정 (선택사항):**
-
-- ✅ **Poll SCM** 체크
-- Schedule에 입력: `H/5 * * * *` (5분마다 체크)
-
-또는
-
-- ✅ **GitHub hook trigger for GITScm polling** (Webhook 사용시)
-
-### 3. 저장
-
-**Save** 버튼 클릭
-
----
-
-## 🧪 테스트 및 배포
-
-### 1. 수동 빌드 테스트
-
-1. `fastapi-cicd` Job 클릭
-2. **Build Now** 클릭
-3. Build History에서 진행 상황 확인
-4. Console Output에서 로그 확인
-
-### 2. 배포 확인
-
-```bash
-# 컨테이너 상태 확인
-docker ps
-
-# 애플리케이션 테스트
-curl http://localhost/
-curl http://localhost/health
-curl http://localhost/api/version
-
-# 로그 확인
-docker logs fastapi-app
-docker logs nginx-proxy
+console.log('🎉 모든 테스트 통과!');
 ```
 
-### 3. 예상 응답
-
+### package.json
 ```json
-// http://localhost/
 {
-  "message": "Hello World",
-  "status": "running"
-}
-
-// http://localhost/health
-{
-  "status": "healthy"
-}
-
-// http://localhost/api/version
-{
+  "name": "my-first-jenkins-project",
   "version": "1.0.0",
-  "environment": "production"
+  "description": "Jenkins 연습용 초간단 프로젝트",
+  "main": "app.js",
+  "scripts": {
+    "test": "node test.js"
+  }
 }
 ```
 
----
-
-## 🐛 문제 해결
-
-### 문제 1: Jenkins에서 Docker 명령어를 찾을 수 없음
-
-**증상:**
+### Jenkinsfile (Jenkins 설정) - 초간단 버전
+```groovy
+pipeline {
+    agent any
+    
+    stages {
+        stage('준비') {
+            steps {
+                echo '📦 프로젝트 준비 중...'
+                echo '프로젝트 이름: my-first-project'
+                echo '빌드 번호: ${BUILD_NUMBER}'
+            }
+        }
+        
+        stage('코드 체크') {
+            steps {
+                echo '🔍 코드 확인 중...'
+                sh 'ls -la'
+                sh 'pwd'
+            }
+        }
+        
+        stage('간단한 테스트') {
+            steps {
+                echo '🧪 간단한 테스트 실행 중...'
+                sh '''
+                    echo "덧셈 테스트: 2 + 3 = 5"
+                    result=$((2 + 3))
+                    if [ $result -eq 5 ]; then
+                        echo "✅ 테스트 통과!"
+                    else
+                        echo "❌ 테스트 실패!"
+                        exit 1
+                    fi
+                '''
+            }
+        }
+        
+        stage('완료') {
+            steps {
+                echo '🎉 빌드 성공!'
+                echo '모든 단계가 정상적으로 완료되었습니다!'
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo '✅ 전체 파이프라인 성공!'
+            echo '빌드 시간: ${currentBuild.durationString}'
+        }
+        failure {
+            echo '❌ 빌드 실패!'
+            echo '에러를 확인해주세요.'
+        }
+    }
+}
 ```
-docker: command not found
+
+## 4단계: Jenkins에서 프로젝트 생성
+
+1. Jenkins 대시보드에서 **"새로운 Item"** 클릭
+2. 이름 입력: `my-first-project`
+3. **"Pipeline"** 선택 후 OK
+4. 아래로 스크롤해서 **"Pipeline"** 섹션 찾기
+5. Definition: **"Pipeline script"** 선택
+6. 위의 Jenkinsfile 내용을 복사해서 붙여넣기
+7. **"저장"** 클릭
+
+## 5단계: 실행!
+
+1. **"Build Now"** 클릭
+2. 왼쪽 **"Build History"**에서 빌드 번호 클릭 (예: #1)
+3. **"Console Output"** 클릭해서 실행 과정 보기
+4. 성공 메시지 확인! 🎉
+
+## 🎯 이제 뭘 해볼까?
+
+### 쉬운 실험들:
+1. **test.js를 일부러 실패하게 만들기**: `add(2, 3) === 5`를 `add(2, 3) === 6`으로 바꾸고 다시 빌드
+2. **새로운 stage 추가**: Jenkinsfile에 배포 단계 추가
+3. **자동 실행 설정**: GitHub와 연결해서 코드 푸시할 때마다 자동 실행
+
+### GitHub 연결하기 (선택사항):
+1. GitHub에 위 프로젝트 푸시
+2. Jenkins에서 Pipeline script 대신 **"Pipeline script from SCM"** 선택
+3. SCM: Git 선택
+4. Repository URL 입력
+5. 저장 후 빌드!
+
+## 💡 팁
+
+- **Console Output**: 빌드가 왜 실패했는지 여기서 확인
+- **재실행**: "Build Now" 버튼 누르면 언제든 다시 실행
+- **수정**: 프로젝트 설정 바꾸려면 "구성" 메뉴 클릭
+
+## 🆘 문제 해결
+
+**Jenkins가 node를 못 찾는다고 하면:**
+```groovy
+// Jenkinsfile 맨 위에 추가
+agent {
+    docker {
+        image 'node:18'
+    }
+}
 ```
 
-**해결:**
+**권한 오류가 나면:**
 ```bash
-# Docker 바이너리 다시 마운트
-docker exec -u root jenkins ln -s /usr/bin/docker /usr/local/bin/docker
-docker exec -u root jenkins ln -s /usr/bin/docker-compose /usr/local/bin/docker-compose
-```
-
-### 문제 2: Permission denied (Docker 소켓)
-
-**증상:**
-```
-permission denied while trying to connect to the Docker daemon socket
-```
-
-**해결:**
-```bash
-# Docker 소켓 권한 부여
-docker exec -u root jenkins chmod 666 /var/run/docker.sock
-
-# 또는 jenkins 사용자를 docker 그룹에 추가
-docker exec -u root jenkins usermod -aG docker jenkins
+# Jenkins 컨테이너 재시작
 docker restart jenkins
 ```
 
-### 문제 3: 포트가 이미 사용중
+## 다음 단계
 
-**증상:**
-```
-Bind for 0.0.0.0:80 failed: port is already allocated
-```
+이 기본 프로젝트가 성공하면:
+- ✅ 실제 프로젝트에 적용
+- ✅ 자동 배포 추가
+- ✅ Slack 알림 연동
+- ✅ 여러 브랜치 테스트
 
-**해결:**
-```bash
-# 포트 사용 프로세스 확인
-sudo lsof -i :80
-# 또는
-sudo netstat -tuln | grep :80
-
-# docker-compose.yml에서 포트 변경
-# ports:
-#   - "8000:80"  # 외부 8000번 포트 사용
-```
-
-### 문제 4: Health Check 실패
-
-**증상:**
-```
-Health check failed
-```
-
-**해결:**
-```bash
-# 애플리케이션 로그 확인
-docker logs fastapi-app
-
-# 컨테이너 내부에서 직접 테스트
-docker exec fastapi-app curl http://localhost:8000/health
-
-# 네트워크 확인
-docker network inspect cicd_app-network
-```
-
-### 문제 5: Build 실패 - 이미지 빌드 오류
-
-**해결:**
-```bash
-# 캐시 없이 다시 빌드
-docker-compose build --no-cache
-
-# 오래된 이미지 정리
-docker system prune -a -f
-
-# Jenkins에서 다시 빌드
-```
-
-### 문제 6: Git 저장소 접근 오류
-
-**해결:**
-```bash
-# Jenkins 컨테이너에서 Git 설정 확인
-docker exec jenkins git config --global --list
-
-# SSH 키 사용시 (비공개 저장소)
-# Jenkins 관리 → Credentials 에서 SSH 키 등록
-```
-
----
-
-## 📊 모니터링
-
-### 컨테이너 상태 확인
-```bash
-# 실시간 로그 보기
-docker-compose logs -f
-
-# 리소스 사용량 확인
-docker stats
-
-# 네트워크 상태
-docker network ls
-docker network inspect cicd_app-network
-```
-
-### 헬스 체크
-```bash
-# 자동 헬스 체크 스크립트
-watch -n 5 'curl -s http://localhost/health | jq'
-```
-
----
-
-## 🔄 업데이트 및 재배포
-
-### 코드 변경 후 재배포
-
-1. 코드 수정 후 Git에 push
-```bash
-git add .
-git commit -m "Update application"
-git push origin main
-```
-
-2. Jenkins가 자동으로 감지하거나 수동으로 **Build Now**
-
-### 수동 재배포
-```bash
-# 컨테이너 중지 및 제거
-docker-compose down
-
-# 새로 빌드 및 실행
-docker-compose up -d --build
-
-# 로그 확인
-docker-compose logs -f
-```
-
----
-
-## 🎯 성능 최적화 팁
-
-1. **Nginx 캐싱 활성화** (정적 파일 있을 경우)
-2. **Docker 이미지 크기 최적화** (multi-stage build)
-3. **로그 로테이션 설정**
-4. **리소스 제한 설정** (docker-compose.yml에 추가)
-
-```yaml
-services:
-  fastapi-app:
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          cpus: '0.5'
-          memory: 256M
-```
-
----
-
-## 📞 추가 도움말
-
-- [FastAPI 공식 문서](https://fastapi.tiangolo.com/)
-- [Jenkins 공식 문서](https://www.jenkins.io/doc/)
-- [Docker 공식 문서](https://docs.docker.com/)
-- [Nginx 공식 문서](https://nginx.org/en/docs/)
-
----
-
-## ✅ 체크리스트
-
-- [ ] Docker 및 Docker Compose 설치 완료
-- [ ] Jenkins 컨테이너 실행 중
-- [ ] Jenkins Docker 권한 설정 완료
-- [ ] 필수 플러그인 설치 완료
-- [ ] Pipeline Job 생성 완료
-- [ ] 첫 빌드 성공
-- [ ] 애플리케이션 정상 작동 확인 (`curl http://localhost/`)
-- [ ] 헬스 체크 통과
-
-모든 항목이 체크되었다면 CI/CD 파이프라인이 성공적으로 구축된 것입니다! 🎉
+**축하합니다! 이제 Jenkins를 사용할 수 있습니다! 🎉**

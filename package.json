@@ -1,0 +1,9 @@
+{
+  "name": "my-first-jenkins-project",
+  "version": "1.0.0",
+  "description": "Jenkins 연습용 초간단 프로젝트",
+  "main": "app.js",
+  "scripts": {
+    "test": "node test.js"
+  }
+}
