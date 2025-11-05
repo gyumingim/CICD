@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  frontend:
+    image: wbhaao/frontend:latest
+    container_name: frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    image: your-dockerhub-username/backend:latest
+    container_name: backend
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
