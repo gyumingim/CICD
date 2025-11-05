@@ -3,7 +3,7 @@ const { add, greet } = require('./app');
 console.log('🧪 테스트 시작...');
 
 // 테스트 1: 덧셈
-if (add(2, 3) === 5) {
+if (add(2, 4) === 6) {
   console.log('✅ 덧셈 테스트 통과!');
 } else {
   console.log('❌ 덧셈 테스트 실패!');
